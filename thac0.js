@@ -1,15 +1,26 @@
-// THAC0 Calculator for Bangle.js 2 - v4.0
-// Tap your die roll to see what AC you hit!
+// THAC0 Calculator for Bangle.js 2 - v6.3 - Dice Visual Edition
+// Swipe to set your roll and THAC0, see what AC you hit!
 
-// App state
+// THAC0 persistence functions - define BEFORE using!
+function loadTHAC0() {
+  try {
+    var saved = require('Storage').readJSON('thac0.settings');
+    return saved && saved.thac0 ? saved.thac0 : 20; // Default to 20 if no save
+  } catch (e) {
+    return 20; // Default if file doesn't exist or error reading
+  }
+}
+
+function saveTHAC0(thac0) {
+  require('Storage').writeJSON('thac0.settings', {thac0: thac0});
+}
+
+// App state - now we can safely call loadTHAC0()
 var state = {
-  thac0: 20,          // Your THAC0 from character sheet (default: 1st level)
-  selectedRoll: 0,    // Which roll number is highlighted (0 = none)
-  attackBonus: 0,     // Attack bonus (STR, magic, etc)
-  showMessage1: true  // Alternates between intro messages
+  thac0: loadTHAC0(), // Load saved THAC0 or default to 20
+  roll: 10,           // Current roll (1-20), default 10
+  attackBonus: 0      // Attack bonus (STR, magic, etc)
 };
-
-var messageTimer;
 
 function calculateHitAC(roll) {
   // Formula: AC Hit = THAC0 - (Roll + Bonus)
@@ -21,156 +32,133 @@ function drawMain() {
   g.setFontAlign(0, -1);
   g.setColor(0,0,0); // BLACK text by default
   
-  // YOUR THAC0 at top - black text, more space
+  // YOUR THAC0 at top
   g.setFont('Vector', 16);
-  g.drawString('YOUR THAC0: ' + state.thac0, g.getWidth()/2, 5);
+  g.drawString('YOUR THAC0: ' + state.thac0, g.getWidth()/2, 8);
   
-  // Draw clickable roll numbers - all black normally
+  // ROLL label and number with dice outline
+  var centerX = g.getWidth()/2;
+  var centerY = g.getHeight()/2 - 10;
+  
+  // Draw "ROLL" label - moved up for better spacing
   g.setFont('Vector', 14);
-  var startY = 35;  // More space after title
+  g.setFontAlign(0, -1);
+  g.drawString('ROLL', centerX, centerY - 30);
   
-  for (var roll = 1; roll <= 20; roll++) {
-    var row = Math.floor((roll - 1) / 5);
-    var col = (roll - 1) % 5;
-    
-    // Center the grid better - 5 columns of 30px each = 150px total
-    var gridWidth = 5 * 30;
-    var gridStartX = (g.getWidth() - gridWidth) / 2;
-    var x = gridStartX + 15 + col * 30;  // Center each column
-    var y = startY + row * 22;
-    
-    // Invert selected roll: black background, white text
-    if (roll === state.selectedRoll) {
-      g.setColor(0,0,0); // Black background
-      g.fillRect(x-12, y-2, x+12, y+16);
-      g.setColor(1,1,1); // White text on black background
-    } else {
-      g.setColor(0,0,0); // Black text normally
-    }
-    
-    // Draw the number - perfectly center it in the rectangle
-    g.setFontAlign(0, 0); // Center horizontally and vertically
-    g.drawString(roll, x, y + 9); // Perfect vertical center in the rectangle
-  }
+  // Draw dice outline around the roll number
+  var diceSize = 35;
+  g.drawRect(centerX - diceSize/2, centerY - diceSize/2, centerX + diceSize/2, centerY + diceSize/2);
   
-  // Show result if a roll is selected - black text
-  g.setColor(0,0,0);
-  if (state.selectedRoll > 0) {
-    g.setFontAlign(0, -1);
-    
-    // Special case: Natural 1 (automatic miss)
-    if (state.selectedRoll === 1) {
-      g.setFont('Vector', 18);
-      g.drawString('AUTO MISS', g.getWidth()/2, startY + 95);
-      g.setFont('Vector', 12);
-      g.drawString('Nat 1 always miss', g.getWidth()/2, startY + 115);
-    }
-    // Special case: Natural 20 (automatic hit)
-    else if (state.selectedRoll === 20) {
-      g.setFont('Vector', 18);
-      g.drawString('AUTO HIT', g.getWidth()/2, startY + 95);
-      var critThresholdAC = calculateHitAC(20);
-      g.setFont('Vector', 12);
-      g.drawString('Crit up to AC ' + critThresholdAC, g.getWidth()/2, startY + 115);
-    }
-    // Normal rolls: show AC hit and armor type
-    else {
-      var hitAC = calculateHitAC(state.selectedRoll);
-      g.setFont('Vector', 18);
-      g.drawString('YOU HIT AC: ' + hitAC, g.getWidth()/2, startY + 95);
-      
-      // Show armor type
-      g.setFont('Vector', 12);
-      if (hitAC >= 8) {
-        g.drawString('Unarmored', g.getWidth()/2, startY + 115);
-      } else if (hitAC >= 5) {
-        g.drawString('Leather', g.getWidth()/2, startY + 115);
-      } else if (hitAC >= 2) {
-        g.drawString('Chain Mail', g.getWidth()/2, startY + 115);
-      } else if (hitAC >= 0) {
-        g.drawString('Full Plate', g.getWidth()/2, startY + 115);
-      } else {
-        g.drawString('Magic Defense', g.getWidth()/2, startY + 115);
-      }
-    }
-  } else {
-    // Alternating intro messages - positioned below the grid
+  // Draw the roll number inside the dice
+  g.setFont('Vector', 20);
+  g.setFontAlign(0, 0); // Center horizontally and vertically
+  g.drawString(state.roll, centerX, centerY);
+  
+  // Calculate result
+  var hitAC = calculateHitAC(state.roll);
+  
+  // Show result based on roll type
+  g.setFontAlign(0, -1);
+  var resultY = centerY + 30; // Position below the dice
+  
+  // Special case: Natural 1 (automatic miss)
+  if (state.roll === 1) {
+    g.setFont('Vector', 18);
+    g.drawString('AUTO MISS', g.getWidth()/2, resultY);
     g.setFont('Vector', 12);
-    g.setFontAlign(0, -1);
-    if (state.showMessage1) {
-      g.drawString('TAP YOUR ROLL', g.getWidth()/2, startY + 100);
-    } else {
-      g.drawString('BTN: Change THAC0', g.getWidth()/2, startY + 100);
-    }
+    g.drawString('Nat 1 always miss', g.getWidth()/2, resultY + 22);
   }
+  // Special case: Natural 20 (automatic hit)
+  else if (state.roll === 20) {
+    g.setFont('Vector', 18);
+    g.drawString('AUTO HIT', g.getWidth()/2, resultY);
+    g.setFont('Vector', 12);
+    g.drawString('Crit up to AC ' + hitAC, g.getWidth()/2, resultY + 22);
+  }
+  // Normal rolls: show AC hit and armor type
+  else {
+    g.setFont('Vector', 18);
+    g.drawString('YOU HIT AC: ' + hitAC, g.getWidth()/2, resultY);
+    
+    // Show armor type
+    g.setFont('Vector', 12);
+    var armorType = '';
+    if (hitAC >= 8) {
+      armorType = 'Unarmored';
+    } else if (hitAC >= 5) {
+      armorType = 'Leather';
+    } else if (hitAC >= 2) {
+      armorType = 'Chain Mail';
+    } else if (hitAC >= 0) {
+      armorType = 'Full Plate';
+    } else {
+      armorType = 'Magic Defense';
+    }
+    g.drawString(armorType, g.getWidth()/2, resultY + 22);
+  }
+  
+  // Show simple gesture instructions at bottom - black text
+  g.setFont('Vector', 11);
+  g.setColor(0,0,0);
+  g.drawString('Swipe to adjust', g.getWidth()/2, g.getHeight() - 12);
 }
 
-// Touch handler - detect which roll number was tapped
-Bangle.on('touch', function(button, xy) {
-  if (xy) {
-    var x = xy.x;
-    var y = xy.y;
-    var startY = 35;  // Updated to match new grid position
-    
-    // Check if touch is in the roll number grid area
-    if (y >= startY && y <= startY + 88) {
-      for (var roll = 1; roll <= 20; roll++) {
-        var row = Math.floor((roll - 1) / 5);
-        var col = (roll - 1) % 5;
-        
-        // Match the new centered grid coordinates
-        var gridWidth = 5 * 30;
-        var gridStartX = (g.getWidth() - gridWidth) / 2;
-        var rollX = gridStartX + 15 + col * 30;
-        var rollY = startY + row * 22;
-        
-        // Check if tap is near this roll number (within 12 pixels)
-        if (Math.abs(x - rollX) <= 12 && Math.abs(y - rollY) <= 11) {
-          state.selectedRoll = roll;
-          // Stop the intro message timer once user starts using the app
-          if (messageTimer) {
-            clearInterval(messageTimer);
-            messageTimer = null;
-          }
-          drawMain();
-          return;
-        }
-      }
+// Basic stroke direction analysis
+Bangle.on('stroke', function(event) {
+  if (!event.xy || event.xy.length < 4) return; // Need at least start and end points
+  
+  // Get first and last coordinates
+  var startX = event.xy[0];
+  var startY = event.xy[1];
+  var endX = event.xy[event.xy.length - 2];
+  var endY = event.xy[event.xy.length - 1];
+  
+  // Calculate movement deltas
+  var deltaX = endX - startX;
+  var deltaY = endY - startY;
+  var threshold = 20; // Minimum movement to count as a gesture
+  
+  // Determine primary direction
+  if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > threshold) {
+    // Vertical gesture
+    if (deltaY < 0) {
+      // Swipe up - decrease roll
+      state.roll = Math.max(1, state.roll - 1);
+      drawMain();
+    } else {
+      // Swipe down - increase roll
+      state.roll = Math.min(20, state.roll + 1);
+      drawMain();
+    }
+  } else if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > threshold) {
+    // Horizontal gesture
+    if (deltaX < 0) {
+      // Swipe left - decrease THAC0
+      state.thac0 = Math.max(10, state.thac0 - 1);
+      saveTHAC0(state.thac0); // Save to storage
+      drawMain();
+    } else {
+      // Swipe right - increase THAC0
+      state.thac0 = Math.min(20, state.thac0 + 1);
+      saveTHAC0(state.thac0); // Save to storage
+      drawMain();
     }
   }
 });
 
-// Physical button - adjust THAC0
+// Physical button - reset roll to 10 (middle value)
 setWatch(function() {
-  state.thac0--;
-  if (state.thac0 < 10) state.thac0 = 20; // Wrap around
+  state.roll = 10;
   drawMain();
 }, BTN, {repeat:true, debounce:200});
 
-// Initialize display and start alternating intro messages
-function startIntroMessages() {
-  drawMain();
-  
-  // Only show alternating messages if no roll is selected yet
-  if (state.selectedRoll === 0) {
-    messageTimer = setInterval(function() {
-      if (state.selectedRoll === 0) { // Check again in case user tapped during interval
-        state.showMessage1 = !state.showMessage1;
-        drawMain();
-      } else {
-        // Stop timer if user has selected a roll
-        clearInterval(messageTimer);
-        messageTimer = null;
-      }
-    }, 3000); // Switch every 3 seconds
-  }
-}
-
 // Show a quick startup message then start the app
 g.clear();
-g.setFont('Vector', 12);
+g.setFont('Vector', 14);
 g.setFontAlign(0, -1);
-g.drawString('THAC0 Loading', g.getWidth()/2, g.getHeight()/2);
+g.drawString('THAC0 v6.3', g.getWidth()/2, g.getHeight()/2 - 10);
+g.setFont('Vector', 10);
+g.drawString('Stroke Gestures', g.getWidth()/2, g.getHeight()/2 + 10);
 setTimeout(function() {
-  startIntroMessages();
-}, 1000);
+  drawMain();
+}, 1200);
